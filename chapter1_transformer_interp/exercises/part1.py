@@ -1,3 +1,5 @@
+# %%
+
 import math
 import os
 import sys
@@ -40,3 +42,13 @@ import part1_transformer_from_scratch.tests as tests
 from plotly_utils import imshow
 
 MAIN = __name__ == "__main__"
+
+# %%
+
+if MAIN:
+    print("This is the wrong block")
+
+# %%
+
+if MAIN:
+    print("This is the right block")
