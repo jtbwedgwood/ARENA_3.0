@@ -16,4 +16,4 @@ source ~/miniconda3/etc/profile.d/conda.sh
 conda activate arena-env
 
 # Run your Python script
-python /home/jwedgwoo/ARENA_3.0/chapter1_transformer_interp/exercises/run_block.py /home/jwedgwoo/ARENA_3.0/chapter1_transformer_interp/exercises/part1.py --which latest --setup-cells 1
+CUDA_LAUNCH_BLOCKING=1 python /home/jwedgwoo/ARENA_3.0/chapter1_transformer_interp/exercises/run_block.py /home/jwedgwoo/ARENA_3.0/chapter1_transformer_interp/exercises/part1.py --which latest --setup-cells 1
