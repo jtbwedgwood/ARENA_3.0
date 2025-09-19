@@ -92,6 +92,21 @@ logits, cache = model.run_with_cache(text, remove_batch_dim=True)
 attention_patterns = [cache["pattern", 0], cache["pattern", 1]]
 tokens = model.to_str_tokens(text)
 
+
+def generate_repeated_tokens(
+    model: HookedTransformer, seq_len: int, batch_size: int = 1
+) -> Int[Tensor, "batch_size full_seq_len"]:
+    """
+    Generates a sequence of repeated random tokens
+
+    Outputs are:
+        rep_tokens: [batch_size, 1+2*seq_len]
+    """
+    t.manual_seed(0)  # for reproducibility
+    prefix = (t.ones(batch_size, 1) * model.tokenizer.bos_token_id).long()
+    random_tokens = t.randint(0, cfg.d_vocab, [batch_size, seq_len])
+    return t.cat((prefix, random_tokens, random_tokens), dim=1)
+
 # %%
 
 print(f"""
@@ -213,21 +228,6 @@ print("Heads attending to first token    = ", ", ".join(first_attn_detector(cach
 
 # %%
 
-def generate_repeated_tokens(
-    model: HookedTransformer, seq_len: int, batch_size: int = 1
-) -> Int[Tensor, "batch_size full_seq_len"]:
-    """
-    Generates a sequence of repeated random tokens
-
-    Outputs are:
-        rep_tokens: [batch_size, 1+2*seq_len]
-    """
-    t.manual_seed(0)  # for reproducibility
-    prefix = (t.ones(batch_size, 1) * model.tokenizer.bos_token_id).long()
-    random_tokens = t.randint(0, cfg.d_vocab, [batch_size, seq_len])
-    return t.cat((prefix, random_tokens, random_tokens), dim=1)
-
-
 def run_and_cache_model_repeated_tokens(
     model: HookedTransformer, seq_len: int, batch_size: int = 1
 ) -> tuple[Tensor, Tensor, ActivationCache]:
@@ -296,3 +296,54 @@ def induction_attn_detector(cache: ActivationCache) -> list[str]:
 
 
 print("Induction heads = ", ", ".join(induction_attn_detector(rep_cache)))
+
+# %%
+
+seq_len = 50
+batch_size = 10
+rep_tokens_10 = generate_repeated_tokens(model, seq_len, batch_size)
+
+# We make a tensor to store the induction score for each head.
+# We put it on the model's device to avoid needing to move things between the GPU and CPU,
+# which can be slow.
+induction_score_store = t.zeros(
+    (model.cfg.n_layers, model.cfg.n_heads), device=model.cfg.device
+)
+
+
+def induction_score_hook(
+    pattern: Float[Tensor, "batch head_index dest_pos source_pos"], hook: HookPoint
+):
+    """
+    Calculates the induction score, and stores it in the [layer, head] position of the
+    `induction_score_store` tensor.
+    """
+
+    induction_stripe = t.diagonal(pattern, dim1=-2, dim2=-1, offset=1-seq_len)
+    print(induction_stripe.shape)
+    induction_scores = induction_stripe.mean(dim=(0, -1))
+    print(induction_scores.shape)
+    induction_score_store[hook.layer()] = induction_scores
+
+
+# We make a boolean filter on activation names, that's true only on attention pattern names
+pattern_hook_names_filter = lambda name: name.endswith("pattern")
+
+# Run with hooks (this is where we write to the `induction_score_store` tensor`)
+model.run_with_hooks(
+    rep_tokens_10,
+    return_type=None,  # For efficiency, we don't need to calculate the logits
+    fwd_hooks=[(pattern_hook_names_filter, induction_score_hook)],
+)
+
+# Plot the induction scores for each head in each layer
+fig = imshow(
+    induction_score_store,
+    labels={"x": "Head", "y": "Layer"},
+    title="Induction Score by Head",
+    text_auto=".2f",
+    width=900,
+    height=350,
+    return_fig=True
+)
+fig.write_html("/home/jwedgwoo/ARENA_3.0/chapter1_transformer_interp/exercises/part2_intro_to_mech_interp/assets/induction_scores.html")
